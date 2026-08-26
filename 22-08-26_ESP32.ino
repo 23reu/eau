@@ -535,57 +535,71 @@ void displayLevel(int level) {
   switch(level) {
     case 0:
       if (send_0 == 0) {
-        lcd.setCursor(0, 0); lcd.print("Niveau:  0% (0.0m3) "); // 20 caractères
+        lcd.setCursor(0, 0); 
+        lcd.print("Niveau:  0% (0.0m3) ");
         drawBar(0);
-        lcd.setCursor(0, 2); lcd.print("ALERTE: Reserve vide! ");
+        lcd.setCursor(0, 2); 
+        lcd.print("ALERTE: Reserve vide! ");
         send_0=1; send_1=0; send_2=0; send_3=0; send_4=0; send_5=0; send_6=0;
       }
       break;
     case 1:
       if (send_1 == 0) {
-        lcd.setCursor(0, 0); lcd.print("Niveau: 17% (3.3m3) "); // 20 caractères
+        lcd.setCursor(0, 0); 
+        lcd.print("Niveau: 17% (3.3m3) ");
         drawBar(1);
-        lcd.setCursor(0, 2); lcd.print("Remplissage en cours  ");
+        lcd.setCursor(0, 2); 
+        lcd.print("Remplissage en cours  ");
         send_0=0; send_1=1; send_2=0; send_3=0; send_4=0; send_5=0; send_6=0;
       }
       break;
     case 2:
       if (send_2 == 0) {
-        lcd.setCursor(0, 0); lcd.print("Niveau: 33% (6.7m3) "); // 20 caractères
+        lcd.setCursor(0, 0); 
+        lcd.print("Niveau: 33% (6.7m3) ");
         drawBar(2);
-        lcd.setCursor(0, 2); lcd.print("Remplissage en cours  ");
+        lcd.setCursor(0, 2); 
+        lcd.print("Remplissage en cours  ");
         send_0=0; send_1=0; send_2=1; send_3=0; send_4=0; send_5=0; send_6=0;
       }
       break;
     case 3:
       if (send_3 == 0) {
-        lcd.setCursor(0, 0); lcd.print("Niveau: 50% (10m3)  "); // 20 caractères
+        lcd.setCursor(0, 0); 
+        lcd.print("Niveau: 50% (10m3)  ");
         drawBar(3);
-        lcd.setCursor(0, 2); lcd.print("Remplissage en cours  ");
+        lcd.setCursor(0, 2); 
+        lcd.print("Remplissage en cours  ");
         send_0=0; send_1=0; send_2=0; send_3=1; send_4=0; send_5=0; send_6=0;
       }
       break;
     case 4:
       if (send_4 == 0) {
-        lcd.setCursor(0, 0); lcd.print("Niveau: 67% (13.3m3)"); // 20 caractères
+        lcd.setCursor(0, 0); 
+        lcd.print("Niveau: 67% (13.3m3)");
         drawBar(4);
-        lcd.setCursor(0, 2); lcd.print("Remplissage en cours  ");
+        lcd.setCursor(0, 2); 
+        lcd.print("Remplissage en cours  ");
         send_0=0; send_1=0; send_2=0; send_3=0; send_4=1; send_5=0; send_6=0;
       }
       break;
     case 5:
       if (send_5 == 0) {
-        lcd.setCursor(0, 0); lcd.print("Niveau: 83% (16.7m3)"; // 20 caractères
+        lcd.setCursor(0, 0); 
+        lcd.print("Niveau: 83% (16.7m3)");
         drawBar(5);
-        lcd.setCursor(0, 2); lcd.print("Remplissage en cours  ");
+        lcd.setCursor(0, 2); 
+        lcd.print("Remplissage en cours  ");
         send_0=0; send_1=0; send_2=0; send_3=0; send_4=0; send_5=1; send_6=0;
       }
       break;
     case 6:
       if (send_6 == 0) {
-        lcd.setCursor(0, 0); lcd.print("Niveau: 100% (20m3) "); // 20 caractères
+        lcd.setCursor(0, 0); 
+        lcd.print("Niveau: 100% (20m3) ");
         drawBar(6);
-        lcd.setCursor(0, 2); lcd.print("ALERTE: Debordement!  ");
+        lcd.setCursor(0, 2); 
+        lcd.print("ALERTE: Debordement!  ");
         send_0=0; send_1=0; send_2=0; send_3=0; send_4=0; send_5=0; send_6=1;
       }
       break;
