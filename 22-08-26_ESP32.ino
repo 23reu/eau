@@ -25,9 +25,9 @@ LiquidCrystal_I2C lcd(0x27, 20, 4);
 // =====================================================================
 // CONFIGURATION DES CAPTEURS
 // =====================================================================
-// ESP-32D dispose de 12 entrées analogiques (ADC1 et ADC2)
-// Broches ADC1 recommandées: GPIO 32-39
-const int SENSOR_PINS[] = {32, 33, 34, 35, 36, 39};  // ADC1_4 à ADC1_7, ADC1_0, ADC1_3
+// ESP-32D broches ADC disponibles: GPIO 32, 33, 34, 35 (ADC1 stable)
+// ATTENTION: GPIO 36 et 39 ne sont pas disponibles sur cette carte
+const int SENSOR_PINS[] = {32, 33, 34, 35, 2, 4};  // 4 broches ADC + 2 GPIO digitales
 const int NUM_SENSORS = 6;
 const int THRESHOLD = 1500;  // Ajusté pour la plage 0-4095 de l'ESP-32D
 int sensorValues[NUM_SENSORS];
@@ -382,6 +382,7 @@ void setup() {
   delay(1000);  // Attendre la stabilisation
   
   Serial.println("\n\n[BOOT] Démarrage du système...");
+  Serial.println("[BOOT] Broches utilisées: GPIO 32, 33, 34, 35, 2, 4");
   
   send_0 = send_1 = send_2 = send_3 = send_4 = send_5 = send_6 = 0;
   
@@ -394,8 +395,11 @@ void setup() {
   lcd.createChar(0, solidBlock);
   
   // Configurer les broches des capteurs
-  for (int i = 0; i < NUM_SENSORS; i++) {
-    pinMode(SENSOR_PINS[i], INPUT);
+  for (int i = 0; i < 4; i++) {
+    pinMode(SENSOR_PINS[i], INPUT);  // GPIO 32-35 en entrée analogique
+  }
+  for (int i = 4; i < NUM_SENSORS; i++) {
+    pinMode(SENSOR_PINS[i], INPUT);  // GPIO 2, 4 en entrée digitale
   }
   
   lcd.clear();
@@ -436,9 +440,13 @@ void loop() {
   }
   
   // Lecture des 6 capteurs
-  for (int i = 0; i < NUM_SENSORS; i++) {
-    sensorValues[i] = analogRead(SENSOR_PINS[i]);
+  for (int i = 0; i < 4; i++) {
+    sensorValues[i] = analogRead(SENSOR_PINS[i]);  // GPIO 32-35 (ADC)
   }
+  
+  // Lecture broches numériques (converties en valeurs 0-4095)
+  sensorValues[4] = digitalRead(SENSOR_PINS[4]) ? 4095 : 0;  // GPIO 2
+  sensorValues[5] = digitalRead(SENSOR_PINS[5]) ? 4095 : 0;  // GPIO 4
 
   // =====================================================================
   // LOGIQUE TOLÉRANTE AUX PANNES
@@ -457,8 +465,8 @@ void loop() {
   Serial.print(" GPIO33:"); Serial.print(sensorValues[1]);
   Serial.print(" GPIO34:"); Serial.print(sensorValues[2]);
   Serial.print(" GPIO35:"); Serial.print(sensorValues[3]);
-  Serial.print(" GPIO36:"); Serial.print(sensorValues[4]);
-  Serial.print(" GPIO39:"); Serial.print(sensorValues[5]);
+  Serial.print(" GPIO2:"); Serial.print(sensorValues[4]);
+  Serial.print(" GPIO4:"); Serial.print(sensorValues[5]);
 
   bool anomaly = false;
   for (int i = 0; i < currentLevel - 1; i++) {
