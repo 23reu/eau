@@ -23,14 +23,21 @@ WebServer server(webServerPort);
 LiquidCrystal_I2C lcd(0x27, 20, 4);
 
 // =====================================================================
-// CONFIGURATION DES CAPTEURS
+// CONFIGURATION DES CAPTEURS - CALIBRATION REQUISE
 // =====================================================================
 // ESP-32D broches ADC disponibles: GPIO 32, 33, 34, 35 (ADC1 stable)
-// ATTENTION: GPIO 36 et 39 ne sont pas disponibles sur cette carte
-const int SENSOR_PINS[] = {32, 33, 34, 35, 2, 4};  // 4 broches ADC + 2 GPIO digitales
+const int SENSOR_PINS[] = {32, 33, 34, 35, 2, 4};
 const int NUM_SENSORS = 6;
-const int THRESHOLD = 500;  // Seuil réduit pour plus de sensibilité (eau vs air)
 const int SMOOTHING_FACTOR = 10;  // Lissage: moyenne sur 10 lectures
+
+// IMPORTANT: Ces valeurs doivent être calibrées pour votre système!
+// Mesurez les valeurs réelles de vos capteurs:
+// - À sec (air): notez la valeur minimale
+// - Immergé (eau): notez la valeur maximale
+// Puis ajustez les seuils ci-dessous
+const int THRESHOLD_AIR = 2000;    // Valeur capteur à l'air (à calibrer)
+const int THRESHOLD_WATER = 500;   // Valeur capteur dans l'eau (à calibrer)
+
 int sensorValues[NUM_SENSORS];
 int sensorAveraged[NUM_SENSORS];
 int sensorReadings[NUM_SENSORS][SMOOTHING_FACTOR];
@@ -40,6 +47,9 @@ int readingIndex = 0;
 int send_0, send_1, send_2, send_3, send_4, send_5, send_6;
 int lastDisplayedLevel = -1;  // Suivi du dernier niveau affiché
 
+// Mode debug pour la calibration
+bool debugMode = true;  // Mettre à false après calibration
+
 // Caractère personnalisé pour la barre
 byte solidBlock[8] = {
   B11111, B11111, B11111, B11111, B11111, B11111, B11111, B11111
@@ -47,7 +57,7 @@ byte solidBlock[8] = {
 
 // Variables de temps pour WiFi
 unsigned long lastWiFiCheck = 0;
-const unsigned long wifiCheckInterval = 30000; // Vérifier WiFi toutes les 30 secondes
+const unsigned long wifiCheckInterval = 30000;
 
 // =====================================================================
 // BARRE DE PROGRESSION (3 blocs par niveau = 18 blocs total)
@@ -90,7 +100,7 @@ void updateSensorReadings() {
       sum += sensorReadings[i][j];
     }
     sensorAveraged[i] = sum / SMOOTHING_FACTOR;
-    sensorValues[i] = sensorAveraged[i];  // Utiliser la moyenne lissée
+    sensorValues[i] = sensorAveraged[i];
   }
 }
 
@@ -189,7 +199,7 @@ void handleRoot() {
         }
         .sensors {
           display: grid;
-          grid-template-columns: 1fr 1fr;
+          grid-template-columns: 1fr 1fr 1fr;
           gap: 10px;
           margin: 20px 0;
         }
@@ -199,16 +209,17 @@ void handleRoot() {
           border-radius: 5px;
           border: 1px solid #ddd;
           text-align: center;
+          font-size: 12px;
         }
         .sensor-name {
           font-weight: bold;
           color: #666;
-          font-size: 12px;
+          font-size: 11px;
         }
         .sensor-value {
-          font-size: 18px;
+          font-size: 16px;
           color: #333;
-          margin-top: 5px;
+          margin-top: 3px;
         }
         .alert {
           background: #fff3cd;
@@ -229,11 +240,14 @@ void handleRoot() {
           font-size: 12px;
           color: #666;
         }
-        .refresh-info {
-          text-align: center;
-          margin-top: 10px;
+        .calibration-info {
+          background: #fff9e6;
+          border-left: 4px solid #ff9800;
+          padding: 10px;
+          margin: 15px 0;
+          border-radius: 5px;
           font-size: 12px;
-          color: #999;
+          color: #e65100;
         }
       </style>
     </head>
@@ -242,6 +256,10 @@ void handleRoot() {
         <h1>💧 Détecteur Niveau d'Eau</h1>
         <div class="info-box">
           <strong>Capacité:</strong> 20 m³
+        </div>
+        
+        <div class="calibration-info" id="calibrationInfo">
+          ⚙️ <strong>Mode calibration activé</strong> - Les valeurs brutes des capteurs sont affichées ci-dessous pour la calibration.
         </div>
         
         <div class="level-display" id="levelDisplay">Chargement...</div>
@@ -260,10 +278,6 @@ void handleRoot() {
           <strong>Adresse IP:</strong> <span id="ipAddress"></span><br>
           <strong>Dernière mise à jour:</strong> <span id="lastUpdate">--:--:--</span>
         </div>
-        
-        <div class="refresh-info">
-          Les données se mettent à jour automatiquement chaque seconde
-        </div>
       </div>
 
       <script>
@@ -271,17 +285,7 @@ void handleRoot() {
           fetch('/api/data')
             .then(response => response.json())
             .then(data => {
-              // Mise à jour du niveau
-              const levelDisplay = document.getElementById('levelDisplay');
-              const percentage = data.level * 16.666;
-              levelDisplay.textContent = `Niveau: ${Math.round(percentage)}% (${data.volume}m³)`;
-              
-              // Mise à jour de la barre de progression
-              const progressFill = document.getElementById('progressFill');
-              progressFill.style.width = percentage + '%';
-              progressFill.textContent = Math.round(percentage) + '%';
-              
-              // Mise à jour des capteurs
+              // Afficher les valeurs brutes des capteurs
               const sensorsContainer = document.getElementById('sensorsContainer');
               sensorsContainer.innerHTML = '';
               data.sensors.forEach((value, index) => {
@@ -293,6 +297,16 @@ void handleRoot() {
                 `;
                 sensorsContainer.appendChild(sensorDiv);
               });
+              
+              // Mise à jour du niveau
+              const levelDisplay = document.getElementById('levelDisplay');
+              const percentage = data.level * 16.666;
+              levelDisplay.textContent = `Niveau: ${Math.round(percentage)}% (${data.volume}m³)`;
+              
+              // Mise à jour de la barre de progression
+              const progressFill = document.getElementById('progressFill');
+              progressFill.style.width = percentage + '%';
+              progressFill.textContent = Math.round(percentage) + '%';
               
               // Gestion des alertes
               const alertBox = document.getElementById('alertBox');
@@ -339,10 +353,9 @@ void handleRoot() {
 }
 
 void handleApiData() {
-  // Préparer les données JSON
   StaticJsonDocument<512> doc;
-  doc["level"] = 0;  // Sera calculé après
-  doc["volume"] = 0; // Sera calculé après
+  doc["level"] = 0;
+  doc["volume"] = 0;
   doc["anomaly"] = false;
   
   JsonArray sensors = doc.createNestedArray("sensors");
@@ -351,7 +364,7 @@ void handleApiData() {
   // Calculer le niveau
   int currentLevel = 0;
   for (int i = NUM_SENSORS - 1; i >= 0; i--) {
-    if (sensorValues[i] > THRESHOLD) {
+    if (sensorValues[i] < THRESHOLD_WATER) {
       currentLevel = i + 1;
       break;
     }
@@ -366,7 +379,7 @@ void handleApiData() {
   // Vérifier les anomalies
   bool anomaly = false;
   for (int i = 0; i < currentLevel - 1; i++) {
-    if (sensorValues[i] <= THRESHOLD) {
+    if (sensorValues[i] >= THRESHOLD_WATER) {
       anomaly = true;
       break;
     }
@@ -410,29 +423,28 @@ void handleNotFound() {
 }
 
 void setup() {
-  Serial.begin(115200);  // ESP-32D utilise 115200 par défaut
-  delay(1000);  // Attendre la stabilisation
+  Serial.begin(115200);
+  delay(1000);
   
   Serial.println("\n\n[BOOT] Démarrage du système...");
-  Serial.println("[BOOT] Broches utilisées: GPIO 32, 33, 34, 35, 2, 4");
-  Serial.println("[BOOT] THRESHOLD = 500 | SMOOTHING = 10 lectures");
+  Serial.println("[BOOT] MODE CALIBRATION ACTIVÉ");
+  Serial.println("[BOOT] Consultez le moniteur série pour les valeurs brutes des capteurs");
+  Serial.println("[BOOT] À sec (air): valeurs devraient être hautes (~3000+)");
+  Serial.println("[BOOT] Dans l'eau: valeurs devraient être basses (~500 ou moins)");
   
   send_0 = send_1 = send_2 = send_3 = send_4 = send_5 = send_6 = 0;
   
-  // Initialiser I2C avec les broches GPIO 21 et 22
   Wire.begin(SDA_PIN, SCL_PIN);
   
-  // Initialiser l'écran LCD
   lcd.init();
   lcd.backlight();
   lcd.createChar(0, solidBlock);
   
-  // Configurer les broches des capteurs
   for (int i = 0; i < 4; i++) {
-    pinMode(SENSOR_PINS[i], INPUT);  // GPIO 32-35 en entrée analogique
+    pinMode(SENSOR_PINS[i], INPUT);
   }
   for (int i = 4; i < NUM_SENSORS; i++) {
-    pinMode(SENSOR_PINS[i], INPUT);  // GPIO 2, 4 en entrée digitale
+    pinMode(SENSOR_PINS[i], INPUT);
   }
   
   // Initialiser le tableau de lissage
@@ -443,16 +455,18 @@ void setup() {
   }
   
   lcd.clear();
-  lcd.setCursor(0, 0); lcd.print("  Detecteur Niveau  ");
-  lcd.setCursor(0, 1); lcd.print("   d'Eau - 20m3     ");
-  lcd.setCursor(0, 2); lcd.print("  Demarrage...      ");
-  lcd.setCursor(0, 3); lcd.print("WiFi: Connexion...   ");
+  lcd.setCursor(0, 0); 
+  lcd.print("  Detecteur Niveau  ");
+  lcd.setCursor(0, 1); 
+  lcd.print("   d'Eau - 20m3     ");
+  lcd.setCursor(0, 2); 
+  lcd.print("  Demarrage...      ");
+  lcd.setCursor(0, 3); 
+  lcd.print("WiFi: Connexion...   ");
   delay(2000);
   
-  // Connexion WiFi
   connectToWiFi();
   
-  // Configuration du serveur web
   server.on("/", handleRoot);
   server.on("/api/data", handleApiData);
   server.on("/api/info", handleApiInfo);
@@ -461,16 +475,14 @@ void setup() {
   
   Serial.println("[BOOT] Serveur web démarré sur le port 80");
   Serial.println("[BOOT] Accédez à http://" + WiFi.localIP().toString());
-  Serial.println("Sketch ESP-32D - Détecteur de niveau d'eau démarré");
+  Serial.println("[BOOT] Interface web en mode CALIBRATION");
   
   lcd.clear();
 }
 
 void loop() {
-  // Traiter les requêtes HTTP
   server.handleClient();
   
-  // Vérifier la connexion WiFi périodiquement
   if (millis() - lastWiFiCheck > wifiCheckInterval) {
     lastWiFiCheck = millis();
     if (WiFi.status() != WL_CONNECTED) {
@@ -479,57 +491,44 @@ void loop() {
     }
   }
   
-  // Mise à jour lissée des capteurs
   updateSensorReadings();
 
-  // =====================================================================
-  // LOGIQUE TOLÉRANTE AUX PANNES
-  // =====================================================================
   int currentLevel = 0;
   for (int i = NUM_SENSORS - 1; i >= 0; i--) {
-    if (sensorValues[i] > THRESHOLD) {
+    if (sensorValues[i] < THRESHOLD_WATER) {
       currentLevel = i + 1;
       break;  
     }
   }
 
-  // Debug série détaillé (tous les 1000ms pour éviter le spam)
+  // Affichage des valeurs brutes en continu pour calibration
   static unsigned long lastDebugTime = 0;
   if (millis() - lastDebugTime > 1000) {
     lastDebugTime = millis();
     
-    Serial.print("Niveau detecte: "); Serial.print(currentLevel);
-    Serial.print(" | GPIO32:"); Serial.print(sensorValues[0]);
-    Serial.print(" GPIO33:"); Serial.print(sensorValues[1]);
-    Serial.print(" GPIO34:"); Serial.print(sensorValues[2]);
-    Serial.print(" GPIO35:"); Serial.print(sensorValues[3]);
-    Serial.print(" GPIO2:"); Serial.print(sensorValues[4]);
-    Serial.print(" GPIO4:"); Serial.print(sensorValues[5]);
-
-    bool anomaly = false;
-    for (int i = 0; i < currentLevel - 1; i++) {
-      if (sensorValues[i] <= THRESHOLD) {
-        anomaly = true;
-        break;
-      }
-    }
-    if (anomaly && currentLevel > 0) {
-      Serial.print(" | ⚠ ANOMALIE: capteur defectueux probable");
+    Serial.print("Niveau: "); 
+    Serial.print(currentLevel);
+    Serial.print(" | RAW: ");
+    for (int i = 0; i < NUM_SENSORS; i++) {
+      Serial.print("GPIO");
+      Serial.print(SENSOR_PINS[i]);
+      Serial.print("=");
+      Serial.print(sensorValues[i]);
+      if (i < NUM_SENSORS - 1) Serial.print(" | ");
     }
     Serial.println();
   }
 
-  // Affichage LCD (uniquement si le niveau a changé)
   if (currentLevel != lastDisplayedLevel) {
     lastDisplayedLevel = currentLevel;
     displayLevel(currentLevel);
   }
   
-  delay(50);  // Cycle de lecture rapide pour le lissage
+  delay(50);
 }
 
 // =====================================================================
-// AFFICHAGE LCD (POURCENTAGE + CONTENANCE 20m3)
+// AFFICHAGE LCD
 // =====================================================================
 void displayLevel(int level) {
   switch(level) {
@@ -605,7 +604,6 @@ void displayLevel(int level) {
       break;
   }
   
-  // --- FIN DE LA FONCTION ---
   lcd.setCursor(2, 3);
   lcd.print("Niveau d'eau");
 }
