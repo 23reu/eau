@@ -29,11 +29,16 @@ LiquidCrystal_I2C lcd(0x27, 20, 4);
 // ATTENTION: GPIO 36 et 39 ne sont pas disponibles sur cette carte
 const int SENSOR_PINS[] = {32, 33, 34, 35, 2, 4};  // 4 broches ADC + 2 GPIO digitales
 const int NUM_SENSORS = 6;
-const int THRESHOLD = 1500;  // Ajusté pour la plage 0-4095 de l'ESP-32D
+const int THRESHOLD = 500;  // Seuil réduit pour plus de sensibilité (eau vs air)
+const int SMOOTHING_FACTOR = 10;  // Lissage: moyenne sur 10 lectures
 int sensorValues[NUM_SENSORS];
+int sensorAveraged[NUM_SENSORS];
+int sensorReadings[NUM_SENSORS][SMOOTHING_FACTOR];
+int readingIndex = 0;
 
 // Flags pour éviter de redessiner l'écran en boucle
 int send_0, send_1, send_2, send_3, send_4, send_5, send_6;
+int lastDisplayedLevel = -1;  // Suivi du dernier niveau affiché
 
 // Caractère personnalisé pour la barre
 byte solidBlock[8] = {
@@ -60,6 +65,33 @@ void drawBar(int level) {
     }
   }
   lcd.print("]");
+}
+
+// =====================================================================
+// FONCTION DE LISSAGE DES CAPTEURS
+// =====================================================================
+void updateSensorReadings() {
+  // Ajouter les nouvelles lectures
+  for (int i = 0; i < 4; i++) {
+    sensorReadings[i][readingIndex] = analogRead(SENSOR_PINS[i]);  // GPIO 32-35 (ADC)
+  }
+  
+  // Lecture broches numériques (converties en valeurs 0-4095)
+  sensorReadings[4][readingIndex] = digitalRead(SENSOR_PINS[4]) ? 4095 : 0;  // GPIO 2
+  sensorReadings[5][readingIndex] = digitalRead(SENSOR_PINS[5]) ? 4095 : 0;  // GPIO 4
+  
+  // Incrementer l'index
+  readingIndex = (readingIndex + 1) % SMOOTHING_FACTOR;
+  
+  // Calculer la moyenne pour chaque capteur
+  for (int i = 0; i < NUM_SENSORS; i++) {
+    int sum = 0;
+    for (int j = 0; j < SMOOTHING_FACTOR; j++) {
+      sum += sensorReadings[i][j];
+    }
+    sensorAveraged[i] = sum / SMOOTHING_FACTOR;
+    sensorValues[i] = sensorAveraged[i];  // Utiliser la moyenne lissée
+  }
 }
 
 // =====================================================================
@@ -383,6 +415,7 @@ void setup() {
   
   Serial.println("\n\n[BOOT] Démarrage du système...");
   Serial.println("[BOOT] Broches utilisées: GPIO 32, 33, 34, 35, 2, 4");
+  Serial.println("[BOOT] THRESHOLD = 500 | SMOOTHING = 10 lectures");
   
   send_0 = send_1 = send_2 = send_3 = send_4 = send_5 = send_6 = 0;
   
@@ -400,6 +433,13 @@ void setup() {
   }
   for (int i = 4; i < NUM_SENSORS; i++) {
     pinMode(SENSOR_PINS[i], INPUT);  // GPIO 2, 4 en entrée digitale
+  }
+  
+  // Initialiser le tableau de lissage
+  for (int i = 0; i < NUM_SENSORS; i++) {
+    for (int j = 0; j < SMOOTHING_FACTOR; j++) {
+      sensorReadings[i][j] = 0;
+    }
   }
   
   lcd.clear();
@@ -439,14 +479,8 @@ void loop() {
     }
   }
   
-  // Lecture des 6 capteurs
-  for (int i = 0; i < 4; i++) {
-    sensorValues[i] = analogRead(SENSOR_PINS[i]);  // GPIO 32-35 (ADC)
-  }
-  
-  // Lecture broches numériques (converties en valeurs 0-4095)
-  sensorValues[4] = digitalRead(SENSOR_PINS[4]) ? 4095 : 0;  // GPIO 2
-  sensorValues[5] = digitalRead(SENSOR_PINS[5]) ? 4095 : 0;  // GPIO 4
+  // Mise à jour lissée des capteurs
+  updateSensorReadings();
 
   // =====================================================================
   // LOGIQUE TOLÉRANTE AUX PANNES
@@ -459,30 +493,39 @@ void loop() {
     }
   }
 
-  // Debug série détaillé
-  Serial.print("Niveau detecte: "); Serial.print(currentLevel);
-  Serial.print(" | GPIO32:"); Serial.print(sensorValues[0]);
-  Serial.print(" GPIO33:"); Serial.print(sensorValues[1]);
-  Serial.print(" GPIO34:"); Serial.print(sensorValues[2]);
-  Serial.print(" GPIO35:"); Serial.print(sensorValues[3]);
-  Serial.print(" GPIO2:"); Serial.print(sensorValues[4]);
-  Serial.print(" GPIO4:"); Serial.print(sensorValues[5]);
+  // Debug série détaillé (tous les 1000ms pour éviter le spam)
+  static unsigned long lastDebugTime = 0;
+  if (millis() - lastDebugTime > 1000) {
+    lastDebugTime = millis();
+    
+    Serial.print("Niveau detecte: "); Serial.print(currentLevel);
+    Serial.print(" | GPIO32:"); Serial.print(sensorValues[0]);
+    Serial.print(" GPIO33:"); Serial.print(sensorValues[1]);
+    Serial.print(" GPIO34:"); Serial.print(sensorValues[2]);
+    Serial.print(" GPIO35:"); Serial.print(sensorValues[3]);
+    Serial.print(" GPIO2:"); Serial.print(sensorValues[4]);
+    Serial.print(" GPIO4:"); Serial.print(sensorValues[5]);
 
-  bool anomaly = false;
-  for (int i = 0; i < currentLevel - 1; i++) {
-    if (sensorValues[i] <= THRESHOLD) {
-      anomaly = true;
-      break;
+    bool anomaly = false;
+    for (int i = 0; i < currentLevel - 1; i++) {
+      if (sensorValues[i] <= THRESHOLD) {
+        anomaly = true;
+        break;
+      }
     }
+    if (anomaly && currentLevel > 0) {
+      Serial.print(" | ⚠ ANOMALIE: capteur defectueux probable");
+    }
+    Serial.println();
   }
-  if (anomaly && currentLevel > 0) {
-    Serial.print(" | ⚠ ANOMALIE: capteur defectueux probable");
-  }
-  Serial.println();
 
-  // Affichage LCD
-  displayLevel(currentLevel);
-  delay(100);
+  // Affichage LCD (uniquement si le niveau a changé)
+  if (currentLevel != lastDisplayedLevel) {
+    lastDisplayedLevel = currentLevel;
+    displayLevel(currentLevel);
+  }
+  
+  delay(50);  // Cycle de lecture rapide pour le lissage
 }
 
 // =====================================================================
@@ -532,7 +575,7 @@ void displayLevel(int level) {
       break;
     case 5:
       if (send_5 == 0) {
-        lcd.setCursor(0, 0); lcd.print("Niveau: 83% (16.7m3)"); // 20 caractères
+        lcd.setCursor(0, 0); lcd.print("Niveau: 83% (16.7m3)"; // 20 caractères
         drawBar(5);
         lcd.setCursor(0, 2); lcd.print("Remplissage en cours  ");
         send_0=0; send_1=0; send_2=0; send_3=0; send_4=0; send_5=1; send_6=0;
